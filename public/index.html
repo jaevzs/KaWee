@@ -1,1 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KaWee Multiplayer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#050817;color:#eaf7ff;font-family:Arial,sans-serif}
+.wrap{max-width:1100px;margin:auto;padding:16px}.top,.card{background:#081329;border:1px solid #285b9b;border-radius:16px;padding:14px;margin-bottom:12px}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.logo{font-size:34px;font-weight:1000;letter-spacing:3px;color:#65e6ff}.muted{font-size:12px;color:#91a8c7}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}.players{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.player{border:1px solid #20476f;border-radius:12px;padding:9px}.player.active{border-color:#65e6ff}.score{font-size:21px;font-weight:900}
+.arena{height:330px;position:relative;overflow:hidden;border:1px solid #1c4e83;border-radius:13px;background:linear-gradient(#081a38,#050918)}
+.stars{position:absolute;inset:0;opacity:.25;background-image:radial-gradient(#fff 1px,transparent 1px);background-size:52px 52px}
+.plat{position:absolute;width:88px;height:12px;border-radius:20px;background:#5cecff;box-shadow:0 0 13px #00d9ff}
+.av{position:absolute;font-size:30px;z-index:3;transform:translate(-50%,-100%);transition:left .08s linear,bottom .08s linear}
+.q{font-size:19px;font-weight:800;padding:14px;background:#071b34;border-radius:12px;margin-top:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.btn,input{width:100%;min-height:46px;padding:10px;border-radius:11px;border:1px solid #2d71ad;background:#0a1b32;color:#eaf7ff;font-weight:800}
+.btn:disabled{opacity:.4}.primary{background:#0b3340;border-color:#45f0ff}.purple{border-color:#814cff}
+.status{min-height:26px;margin-top:9px;color:#aeeaff;font-weight:700}
+.room{display:grid;grid-template-columns:1fr auto;gap:8px}.code{font-size:24px;font-weight:1000;color:#ffe66d;letter-spacing:3px}
+.list{margin:8px 0}.list div{padding:7px;border-bottom:1px solid #17314e}
+.hidden{display:none}.host{color:#65e6ff}.small{font-size:11px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.top{align-items:flex-start}.grid2{grid-template-columns:1fr}.arena{height:280px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><div><div class="logo">KAWEE</div><div class="muted">PHILIPPINE HISTORY • SCI-FI MULTIPLAYER</div></div><div>⭐ <span id="stars">0</span></div></div>
 
+<section id="lobby" class="card">
+<h3>🌐 Multiplayer Lobby</h3>
+<div class="grid2">
+<div><input id="name" maxlength="16" placeholder="Your player name"></div>
+<div><button class="btn primary" id="create">Create Room</button></div>
+</div>
+<div class="room" style="margin-top:8px"><input id="room" maxlength="8" placeholder="Room code"><button class="btn purple" id="join">Join</button></div>
+<div class="status" id="lobbyStatus">Create a room or enter a friend's room code.</div>
+<div class="small muted">For online play, this page connects to the KaWee game server.</div>
+</section>
+
+<section id="game" class="hidden">
+<div class="grid">
+<main>
+<section class="card">
+<div style="display:flex;justify-content:space-between"><b>🚀 FLIGHT ARENA</b><span class="muted">FIRST TO 10 POINTS</span></div>
+<div class="arena" id="arena"><div class="stars"></div></div>
+</section>
+<section class="card">
+<b>🔔 BUZZER</b><div class="muted">First player to buzz gets the question.</div>
+<div class="grid2" id="buzzers" style="margin-top:8px"></div>
+<div class="status" id="status">Waiting for the host to start...</div>
+<div class="q" id="question">Waiting for a question...</div>
+<div class="grid2" id="answers" style="margin-top:9px"></div>
+<button class="btn primary" id="jet" disabled style="margin-top:9px">🚀 HOLD TO THRUST • RELEASE TO LAND</button>
+<div class="muted" style="margin-top:6px">There is no meter. Watch the jump and release at the right moment to land on the next platform.</div>
+</section>
+</main>
+<aside>
+<section class="card"><b>👥 PLAYERS</b><div class="list" id="playerList"></div></section>
+<section class="card"><b>🏠 ROOM</b><div class="code" id="roomCode">----</div><div class="muted">Share this code with friends.</div><button class="btn" id="start" style="margin-top:8px">Start Game</button></section>
+<section class="card"><b>⭐ RANK</b><div id="rank">Elite</div><div class="muted">Stars: <span id="rankStars">0</span></div></section>
+</aside>
+</div>
+</section>
+</div>
+
+<script>
+const questions=[
+["Who was the first president of the Philippines?",["Emilio Aguinaldo","Manuel Quezon","Jose Rizal","Andres Bonifacio"],0],
+["When was Philippine independence declared from Spain?",["1896","1898","1901","1946"],1],
+["Who wrote Noli Me Tangere?",["Jose Rizal","Andres Bonifacio","Emilio Aguinaldo","Marcelo del Pilar"],0],
+["Where was Philippine independence proclaimed?",["Kawit, Cavite","Manila","Cebu","Malolos"],0],
+["Who founded the Katipunan?",["Andres Bonifacio","Jose Rizal","Emilio Aguinaldo","Apolinario Mabini"],0],
+["What ancient writing system was used by Filipinos?",["Baybayin","Cuneiform","Hieroglyphics","Latin"],0],
+["Who was the first president of the Commonwealth?",["Manuel Quezon","Sergio Osmeña","Emilio Aguinaldo","Ramon Magsaysay"],0]
+];
+
+let ws=null,myId=null,isHost=false,state=null,holding=false,raf=0;
+const $=id=>document.getElementById(id);
+const nameEl=$("name"), roomEl=$("room");
+
+function send(type,data={}){if(ws&&ws.readyState===1)ws.send(JSON.stringify({type,...data}))}
+
+function connect(action,room){
+  const name=(nameEl.value.trim()||"Player").slice(0,16);
+  const protocol=location.protocol==="https:"?"wss":"ws";
+  const host=location.host;
+  const server=(window.KAWEE_SERVER||`${protocol}://${host}`);
+  ws=new WebSocket(server);
+  ws.onopen=()=>send(action,{room,name});
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    if(m.type==="hello"){myId=m.id;return}
+    if(m.type==="error"){$("lobbyStatus").textContent="❌ "+m.message;return}
+    if(m.type==="room"){
+      isHost=m.hostId===myId;
+      $("lobby").classList.add("hidden");$("game").classList.remove("hidden");
+      $("roomCode").textContent=m.room;state=m.state;render();
+    }
+    if(m.type==="state"){state=m.state;render()}
+    if(m.type==="event")$("status").textContent=m.text;
+  };
+  ws.onclose=()=>{$("lobbyStatus").textContent="Connection closed."};
+  ws.onerror=()=>{$("lobbyStatus").textContent="Could not connect to the game server."};
+}
+$("create").onclick=()=>connect("create");
+$("join").onclick=()=>connect("join",roomEl.value.trim().toUpperCase());
+$("start").onclick=()=>send("start");
+
+function render(){
+  if(!state)return;
+  $("stars").textContent=state.stars?.[myId]||0;
+  $("rankStars").textContent=state.stars?.[myId]||0;
+  $("rank").textContent=rank(state.stars?.[myId]||0);
+  $("playerList").innerHTML=Object.values(state.players).map(p=>
+    `<div class="${p.id===state.current?"host":""}">${p.name}${p.id===state.hostId?" 👑":""}<br><b>${p.points}/10</b> • Platform ${p.platform+1}</div>`).join("");
+  drawArena();
+  renderBuzzers();
+  $("start").disabled=!isHost||state.started;
+  if(state.question){
+    $("question").textContent=state.question.text;
+    $("answers").innerHTML=state.question.answers.map((a,i)=>
+      `<button class="btn" data-answer="${i}" ${state.answerer!==myId?"disabled":""}>${a}</button>`).join("");
+    document.querySelectorAll("[data-answer]").forEach(b=>b.onclick=()=>send("answer",{choice:+b.dataset.answer}));
+  }else{
+    $("question").textContent=state.started?"Press a buzzer!":"Waiting for the host to start...";
+    $("answers").innerHTML="";
+  }
+  $("jet").disabled=!(state.answerer===myId && state.flight===myId);
+}
+
+function rank(s){
+  if(s>=50)return"Mythical Immortal";if(s>=40)return"Mythical Glory";if(s>=30)return"Mythical Honor";
+  if(s>=25)return"Mythic";if(s>=20)return"Legend";if(s>=16)return"Epic";if(s>=12)return"Grandmaster";
+  if(s>=8)return"Master";return"Elite";
+}
+
+function renderBuzzers(){
+  $("buzzers").innerHTML=Object.values(state.players).map(p=>
+    `<button class="btn purple" data-buzz="${p.id}" ${!state.question||state.answerer?"disabled":""}>🔔 ${p.name}</button>`).join("");
+  document.querySelectorAll("[data-buzz]").forEach(b=>b.onclick=()=>send("buzz"));
+}
+
+function drawArena(){
+  const arena=$("arena");arena.querySelectorAll(".plat,.av").forEach(x=>x.remove());
+  const pts=[{x:8,y:51},{x:24,y:121},{x:42,y:61},{x:60,y:151},{x:79,y:81},{x:93,y:176}];
+  pts.forEach((p,i)=>{const d=document.createElement("div");d.className="plat";d.style.left=p.x+"%";d.style.bottom=p.y+"px";arena.appendChild(d)});
+  Object.values(state.players).forEach((p,i)=>{
+    const d=document.createElement("div");d.className="av";d.id="av-"+p.id;d.textContent=["🧑‍🚀","👩‍🚀","🤖","👨‍🚀"][i%4];
+    const pt=pts[Math.min(p.platform,pts.length-1)];d.style.left=pt.x+"%";d.style.bottom=pt.y+"px";arena.appendChild(d);
+  });
+}
+
+function holdStart(){
+  if($("jet").disabled||holding)return;
+  holding=true;send("thrust",{on:true});
+}
+function holdEnd(){
+  if(!holding)return;holding=false;send("thrust",{on:false});
+}
+$("jet").addEventListener("pointerdown",e=>{e.preventDefault();$("jet").setPointerCapture?.(e.pointerId);holdStart()});
+$("jet").addEventListener("pointerup",holdEnd);
+$("jet").addEventListener("pointercancel",holdEnd);
+</script>
+</body>
+</html>
